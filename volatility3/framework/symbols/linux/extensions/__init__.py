@@ -25,7 +25,6 @@ vollog = logging.getLogger(__name__)
 
 
 class module(generic.GenericIntelProcess):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._mod_mem_type = None  # Initialize _mod_mem_type to None for memoization
@@ -516,7 +515,6 @@ class maple_tree(objects.StructType):
 
 
 class mm_struct(objects.StructType):
-
     # TODO: As of version 3.0.0 this method should be removed
     def get_mmap_iter(self) -> Iterable[interfaces.objects.ObjectInterface]:
         """
@@ -1287,6 +1285,54 @@ class kobject(objects.StructType):
         return ret
 
 
+class rb_node(objects.StructType):
+    def left_deepest_node(self):
+        node = self
+        while True:
+            if node.rb_left != 0:
+                node = node.rb_left.dereference()
+            elif node.rb_right != 0:
+                node = node.rb_right.dereference()
+            else:
+                return node
+
+    def next_postorder(self):
+        parent_ptr = self.__rb_parent_color & ~3
+        if parent_ptr == 0:
+            return
+        parent = self._context.object(
+            self.vol.type_name, layer_name=self.vol.layer_name, offset=parent_ptr
+        )
+        if self.vol.offset == parent.rb_left and parent.rb_right:
+            return parent.rb_right.dereference().left_deepest_node()
+        return parent
+
+
+class rb_root(objects.StructType):
+    def to_list_postorder(
+        self, symbol_type: str, member: str, layer: Optional[str] = None
+    ):
+        layer = layer or self.vol.layer_name
+
+        relative_offset = self._context.symbol_space.get_type(
+            symbol_type
+        ).relative_child_offset(member)
+
+        try:
+            link = getattr(self, "rb_node").dereference()
+        except exceptions.InvalidAddressException:
+            return None
+
+        link = link.left_deepest_node()
+        while link is not None:
+            obj = self._context.object(
+                symbol_type, layer, offset=link.vol.offset - relative_offset
+            )
+            yield obj
+
+            link = link.next_postorder()
+
+
 class mnt_namespace(objects.StructType):
     def get_inode(self):
         if self.has_member("proc_inum"):
@@ -1302,8 +1348,13 @@ class mnt_namespace(objects.StructType):
         if not self._context.symbol_space.has_type(mnt_type):
             # Old kernels ~ 2.6
             mnt_type = table_name + constants.BANG + "vfsmount"
-        for mount in self.list.to_list(mnt_type, "mnt_list"):
-            yield mount
+        if self.has_member("list"):
+            # kernels < 6.8
+            for mount in self.list.to_list(mnt_type, "mnt_list"):
+                yield mount
+        else:
+            for mount in self.mounts.to_list_postorder(mnt_type, "mnt_node"):
+                yield mount
 
 
 class net(objects.StructType):

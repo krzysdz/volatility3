@@ -29,6 +29,8 @@ class LinuxKernelIntermedSymbols(intermed.IntermediateSymbolTable):
         self.set_type_class("files_struct", extensions.files_struct)
         self.set_type_class("kobject", extensions.kobject)
         self.set_type_class("cred", extensions.cred)
+        self.set_type_class("rb_node", extensions.rb_node)
+        self.set_type_class("rb_root", extensions.rb_root)
         # Might not exist in the current symbols
         self.optional_set_type_class("module", extensions.module)
         self.optional_set_type_class("bpf_prog", extensions.bpf_prog)
